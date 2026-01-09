@@ -2,9 +2,9 @@
 """
 Created on Sat Oct 19 07:35:13 2024
 
-@author: htchen
+@author: 14846034-zhaohan
+
 """
-#14846034 曾肇瀚
 import numpy as np
 import numpy.linalg as la
 
@@ -26,35 +26,39 @@ def scale_to_range(X: np.ndarray, to_range=(0,1), byrow = False):
     
     """
     a, b = to_range
-    X = np.asarray(X, dtype=float)
-    Y = np.zeros_like(X, dtype=float)
+    Y = np.zeros(X.shape)
+def scale_to_range(X: np.ndarray, to_range=(0,1), byrow=False):
+    a, b = to_range
+    X = np.asarray(X, dtype=np.float64)
 
-    # ---------- 1D 情況 ----------
     if X.ndim == 1:
-        x_min, x_max = np.min(X), np.max(X)
-        if x_max == x_min:
-            Y[:] = a  # 若全部值相同
+        x_min = np.min(X)
+        x_max = np.max(X)
+        denom = x_max - x_min
+        if denom == 0:
+            return np.full_like(X, (a + b) / 2.0, dtype=np.float64)
+        return (X - x_min) / denom * (b - a) + a
+
+    elif X.ndim == 2:
+        if byrow:
+            x_min = np.min(X, axis=1, keepdims=True)
+            x_max = np.max(X, axis=1, keepdims=True)
         else:
-            Y = a + (X - x_min) / (x_max - x_min) * (b - a)
-        return np.round(Y, 2)
-    # ---------- 2D 情況 ----------
-    if byrow:
-        # 每一列 (row-wise)
-        for i in range(X.shape[0]):
-            x_min, x_max = np.min(X[i, :]), np.max(X[i, :])
-            if x_max == x_min:
-                Y[i, :] = a
-            else:
-                Y[i, :] = a + (X[i, :] - x_min) / (x_max - x_min) * (b - a)
+            x_min = np.min(X, axis=0, keepdims=True)
+            x_max = np.max(X, axis=0, keepdims=True)
+
+        denom = x_max - x_min
+        # denom=0 的位置用 1 避免除以 0，稍後再填中點
+        denom_safe = np.where(denom == 0, 1.0, denom)
+
+        Y = (X - x_min) / denom_safe * (b - a) + a
+        Y = np.where(denom == 0, (a + b) / 2.0, Y)
+        return Y
+
     else:
-        # 每一行 (column-wise)
-        for j in range(X.shape[1]):
-            x_min, x_max = np.min(X[:, j]), np.max(X[:, j])
-            if x_max == x_min:
-                Y[:, j] = a
-            else:
-                Y[:, j] = a + (X[:, j] - x_min) / (x_max - x_min) * (b - a)
-    return np.round(Y, 2)
+        raise ValueError("X must be a 1D or 2D array.")
+
+    return Y
 
 print('test case 1:')
 A = np.array([1, 2.5, 6, 4, 5])

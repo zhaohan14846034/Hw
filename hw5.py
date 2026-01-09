@@ -2,12 +2,10 @@
 """
 Created on Mon Mar 15 09:37:05 2021
 
-@author: htchen
+@author: 14846034-zhaohan
 """
-#14846034 曾肇瀚
 # If this script is not run under spyder IDE, comment the following two lines.
-#from IPython import get_ipython
-#get_ipython().run_line_magic('reset', '-sf')
+
 
 import math
 import numpy as np
@@ -99,77 +97,113 @@ def poly_data_matrix(x: np.ndarray, n: int):
         X[:, deg] = X[:, deg - 1] * x
     return X
 
-hw5_csv = pd.read_csv(r'C:\Users\ASUS\Downloads\OneDrive_1_2025-10-31\hw5.csv')
+from pathlib import Path
+base_dir = Path(__file__).resolve().parent
+hw5_csv = pd.read_csv(base_dir / 'data' / 'hw5.csv')
+
 hw5_dataset = hw5_csv.to_numpy(dtype = np.float64)
 
 hours = hw5_dataset[:, 0]
 sulfate = hw5_dataset[:, 1]
 
-
-
-
-
-# ---------------------------------------------------------
-# (1) 濃度 vs 時間：散佈圖 + 多項式迴歸曲線
-# ---------------------------------------------------------
+# --------------------------
+# 基本資料圖
 plt.figure()
-
-# 原始資料
 plt.plot(hours, sulfate, 'ko', label='data')
-
-# 這裡選擇一個「多項式回歸」作為我們的迴歸方法，例：三次多項式
-deg = 3
-X = poly_data_matrix(hours, deg)
-U, Sigma, V = mysvd(X)
-# least square 解：a = V Σ^{-1} U^T y
-a = V @ np.linalg.inv(Sigma) @ (U.T @ sulfate)
-
-# 為了畫平滑曲線，我們在時間軸上取更多點
-t_grid = np.linspace(hours.min(), hours.max(), 200)
-X_grid = poly_data_matrix(t_grid, deg)
-sulfate_pred = X_grid @ a
-
-plt.plot(t_grid, sulfate_pred, 'b-', label=f'poly deg={deg} regression')
-
-plt.title('Sulfate concentration vs time')
+plt.title('concentration vs time')
 plt.xlabel('time in hours')
 plt.ylabel('sulfate concentration (times $10^{-4}$)')
+plt.grid(True)
 plt.legend()
-plt.tight_layout()
 plt.show()
 
-# ---------------------------------------------------------
-# (2) log(濃度) vs log(時間)：散佈圖 + 線性迴歸直線
-# ---------------------------------------------------------
-
-# 只取正值（時間與濃度都應該是正的，這裡保險起見）
-mask = (hours > 0) & (sulfate > 0)
-hours_pos = hours[mask]
-sulfate_pos = sulfate[mask]
-
-log_t = np.log(hours_pos)
-log_c = np.log(sulfate_pos)
+# --------------------------
+# log-log 圖（避免 log(0)）
+eps = 1e-12
+x_log = np.log(hours + eps)
+y_log = np.log(sulfate + eps)
 
 plt.figure()
-
-# log-log 的散佈圖
-plt.plot(log_t, log_c, 'ko', label='log-log data')
-
-# 在 log-log 空間做線性回歸：log_c = b0 + b1 * log_t
-X_log = poly_data_matrix(log_t, 1)  # [1, log_t]
-U_log, Sigma_log, V_log = mysvd(X_log)
-a_log = V_log @ np.linalg.inv(Sigma_log) @ (U_log.T @ log_c)
-
-# 畫線
-xg = np.linspace(log_t.min(), log_t.max(), 200)
-Xg_log = poly_data_matrix(xg, 1)
-yg = Xg_log @ a_log
-
-plt.plot(xg, yg, 'b-', label='linear regression in log-log')
-
-plt.title('log(sulfate concentration) vs log(time)')
-plt.xlabel('log(time in hours)')
-plt.ylabel('log(sulfate concentration  (times $10^{-4}$))')
+plt.plot(hours, sulfate, 'ko', label='data')
+plt.xscale("log")
+plt.yscale("log")
+plt.title('concentration vs time (log-log scale)')
+plt.xlabel('time in hours (log)')
+plt.ylabel('sulfate concentration (log)')
+plt.grid(True, which='both')
 plt.legend()
-plt.tight_layout()
 plt.show()
+
+# --------------------------
+# (1) Power-law 擬合： y = alpha * x^beta
+# log(y) = log(alpha) + beta * log(x)
+Xlog = poly_data_matrix(x_log, 1)              # [1, log(x)]
+w = la.pinv(Xlog) @ y_log                      # w[0]=log(alpha), w[1]=beta
+alpha = np.exp(w[0])
+beta = w[1]
+print(f'[power-law fit] alpha={alpha:.6g}, beta={beta:.6g}')
+
+# 產生平滑曲線
+xg = np.linspace(hours.min(), hours.max(), 400)
+yg = alpha * (xg ** beta)
+
+plt.figure()
+plt.plot(hours, sulfate, 'ko', label='data')
+plt.plot(xg, yg, 'r-', label=f'fit: y={alpha:.3g} x^{beta:.3g}')
+plt.title('power-law fit (linear scale)')
+plt.xlabel('time in hours')
+plt.ylabel('sulfate concentration (times $10^{-4}$)')
+plt.grid(True)
+plt.legend()
+plt.show()
+
+plt.figure()
+plt.plot(hours, sulfate, 'ko', label='data')
+plt.plot(xg, yg, 'r-', label='power-law fit')
+plt.xscale("log")
+plt.yscale("log")
+plt.title('power-law fit (log-log scale)')
+plt.xlabel('time in hours (log)')
+plt.ylabel('sulfate concentration (log)')
+plt.grid(True, which='both')
+plt.legend()
+plt.show()
+
+# --------------------------
+# (2) 可選：局部加權線性回歸（LWLR）
+# 注意：predict() 裡距離是用 X(含 bias) 算的，這裡用 [1, x] 跑即可
+X = np.column_stack([np.ones_like(hours), hours])
+y = sulfate.copy()
+
+Xt = np.column_stack([np.ones_like(xg), xg])
+
+sigma = 50.0   # 可調：越小越「貼點」但越抖；越大越平滑
+y_lw = predict(X, y, Xt, sigma=sigma)
+
+plt.figure()
+plt.plot(hours, sulfate, 'ko', label='data')
+plt.plot(xg, y_lw, 'g-', label=f'LWLR (sigma={sigma})')
+plt.title('Locally Weighted Linear Regression')
+plt.xlabel('time in hours')
+plt.ylabel('sulfate concentration (times $10^{-4}$)')
+plt.grid(True)
+plt.legend()
+plt.show()
+
+
+
+
+
+# plt.title('concentration vs time')
+# plt.xlabel('time in hours')
+# plt.ylabel('sulfate concentration (times $10^{-4}$)')
+
+
+
+# plt.xscale("log")
+# plt.yscale("log")
+# plt.title('concentration vs time (log-log scale)')
+# plt.xlabel('time in hours')
+# plt.ylabel('sulfate concentration  (times $10^{-4}$)')
+
+

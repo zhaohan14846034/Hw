@@ -2,9 +2,8 @@
 """
 Created on Mon Oct 21 12:38:53 2024
 
-@author: htchen
+@author: 14846034-zhaohan
 """
-#14846034 曾肇瀚
 
 import numpy as np
 import numpy.linalg as la
@@ -56,19 +55,33 @@ T0 = np.max(x) - np.min(x)
 f0 = 1.0 / T0
 omega0 = 2.0 * np.pi * f0
 
-# ---------- Step 1: 建構設計矩陣 X ----------
-n = 5
-# φ(x) = [1, cos(ω0 x), ..., cos(n ω0 x), sin(ω0 x), ..., sin(n ω0 x)]
+# step1: generate X=[1 cos(omega0 x) cos(omega0 2x) ... cos(omega0 nx) sin(omega0 x) sin(omega0 2x) ... sin(omega0 nx)]
+n_harm = 10  # 你要幾階諧波；越大越像方波但越容易震盪(Gibbs)
+
+# 欄位順序：[1, cos(1),...,cos(n), sin(1),...,sin(n)]
 cols = [np.ones_like(x)]
-cols += [np.cos(k * omega0 * x) for k in range(1, n + 1)]
-cols += [np.sin(k * omega0 * x) for k in range(1, n + 1)]
-X = np.column_stack(cols)             # 形狀: (m, 1+2n)
+for k in range(1, n_harm + 1):
+    cols.append(np.cos(k * omega0 * x))
+for k in range(1, n_harm + 1):
+    cols.append(np.sin(k * omega0 * x))
 
-# ---------- Step 2: X 的短式 SVD：X = U Σ V^T ----------
-U, Sigma, V = mysvd(X)                # U:(m,r), Σ:(r,r), V:(p,r) 其中 p=1+2n
+X = np.column_stack(cols)   # shape = (pts, 1+2*n_harm)
 
-# ---------- Step 3: 最小平方解 a = X^+ y = V Σ^{-1} U^T y ----------
-a = V @ np.linalg.inv(Sigma) @ (U.T @ y)
+# step2: SVD of X => X=USV^T
+U, Sigma, V = mysvd(X)
+VT = V.T
+
+# step3: a = U @ S^-1 @ V^T @ y   (等價於 a = V @ S^-1 @ U^T @ y)
+# Sigma 是 r×r 對角矩陣（r=rank），所以直接用對角反矩陣
+s = np.diag(Sigma)                  # singular values (length r)
+Sigma_inv = np.diag(1.0 / s)
+
+a = V @ Sigma_inv @ (U.T @ y)
+
+# (optional) quick check vs numpy least squares / pinv
+# a2 = np.linalg.pinv(X) @ y
+# print("max|a-a2| =", np.max(np.abs(a - a2)))
+
 
 y_bar = X @ a
 plt.plot(x, y_bar, 'g-', label='predicted values') 

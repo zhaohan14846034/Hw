@@ -1,20 +1,12 @@
 # -*- coding: utf-8 -*-
 """
 Created on Mon Apr 12 10:04:38 2021
-
-@author: htchen
+@author: 14846034-zhaohan
 """
-#14846034 曾肇瀚
-#from IPython import get_ipython
-#get_ipython().run_line_magic('reset', '-sf')
 
-import math
 import numpy as np
 import numpy.linalg as la
-import cv2
 import matplotlib.pyplot as plt
-import pandas as pd
-
 
 # calculate the eigenvalues and eigenvectors of a squared matrix
 # the eigenvalues are decreasing ordered
@@ -23,79 +15,81 @@ def myeig(A, symmetric=False):
         lambdas, V = np.linalg.eigh(A)
     else:
         lambdas, V = np.linalg.eig(A)
-    # lambdas, V may contain complex value
     lambdas_real = np.real(lambdas)
-    sorted_idx = lambdas_real.argsort()[::-1] 
+    sorted_idx = lambdas_real.argsort()[::-1]
     return lambdas[sorted_idx], V[:, sorted_idx]
 
 
-# class 1
+# -------------------------
+# generate 2 classes
+# -------------------------
+np.random.seed(0)  # 固定結果（可拿掉）
+
 mean1 = np.array([0, 5])
-sigma1 = np.array([[0.3, 0.2],
-                   [0.2, 1.0]])
+sigma1 = np.array([[0.3, 0.2], [0.2, 1]])
 N1 = 200
 X1 = np.random.multivariate_normal(mean1, sigma1, N1)
 
-# class 2
 mean2 = np.array([3, 4])
-sigma2 = np.array([[0.3, 0.2],
-                   [0.2, 1.0]])
+sigma2 = np.array([[0.3, 0.2], [0.2, 1]])
 N2 = 100
 X2 = np.random.multivariate_normal(mean2, sigma2, N2)
 
-# ------------------ LDA：求 w ------------------
-m1 = X1.mean(axis=0)   # 類別 1 的平均 (2,)
-m2 = X2.mean(axis=0)   # 類別 2 的平均 (2,)
+m1 = np.mean(X1, axis=0, keepdims=True)
+m2 = np.mean(X2, axis=0, keepdims=True)
 
-S1 = (X1 - m1).T @ (X1 - m1)   # 類內散佈矩陣
-S2 = (X2 - m2).T @ (X2 - m2)
-Sw = S1 + S2
+# -------------------------
+# Fisher LDA (2-class)
+# -------------------------
+Sw = (X1 - m1).T @ (X1 - m1) + (X2 - m2).T @ (X2 - m2)
+md = (m1 - m2).reshape(2, 1)
+Sb = md @ md.T
 
-# 兩類 LDA 的閉式解： w ∝ Sw^{-1} (m1 - m2)
-w = la.inv(Sw) @ (m1 - m2)
-w = w / la.norm(w)              # 正規化，方便解讀
-if (m1 @ w) > (m2 @ w):
-    w = -w
-# ------------------ 將點投影到 w 上（一維） ------------------
-# 投影係數 y = x · w
-y1 = X1 @ w        # shape (N1,)
-y2 = X2 @ w        # shape (N2,)
+A = la.pinv(Sw) @ Sb
+lambdas, V = myeig(A, symmetric=False)
+w = np.real(V[:, 0]).reshape(2,)
+w_unit = w / la.norm(w)
 
-if (m1 @ w) > (m2 @ w):
-    w = -w
-# 選一個基準點，讓投影線畫在資料下面一點
-# 先抓兩類一起的平均點
-m_all = (N1 * m1 + N2 * m2) / (N1 + N2)   # shape (2,)
-# 再沿著 w 的法向量往下移一段，避免壓在點雲中間
-n_perp = np.array([-w[1], w[0]])         # 和 w 垂直的向量
-p0 = m_all - 3.0 * n_perp                # 基準點（線上其中一點）
+m0 = ((m1 + m2) * 0.5).reshape(2,)  # midpoint
 
-# 把一維投影放回 2D：p = p0 + t * w
-X1_proj = p0 + np.outer(y1, w)           # (N1,2)
-X2_proj = p0 + np.outer(y2, w)           # (N2,2)
+# -------------------------
+# plotting
+# -------------------------
+plt.figure(dpi=288)
 
-# 用同一條方向畫出投影「基準線」
-t_line_min = min(y1.min(), y2.min()) - 1
-t_line_max = max(y1.max(), y2.max()) + 1
-t_line = np.linspace(t_line_min, t_line_max, 2)
-line_pts = p0 + np.outer(t_line, w)
-# ------------------ 畫圖 ------------------
-plt.figure(dpi=144)
+# original samples
+plt.plot(X1[:, 0], X1[:, 1], 'r.', ms=3, label='class 1')
+plt.plot(X2[:, 0], X2[:, 1], 'g.', ms=3, label='class 2')
 
-# 上半部：原始 2D 資料
-plt.plot(X1[:, 0], X1[:, 1], 'r.', label='class 1')
-plt.plot(X2[:, 0], X2[:, 1], 'g.', label='class 2')
+# means
+plt.plot(m1[0, 0], m1[0, 1], 'kx', ms=8, mew=2)
+plt.plot(m2[0, 0], m2[0, 1], 'kx', ms=8, mew=2)
 
-# 下半部：在 w 上的一維投影（排在 x 軸附近）
-plt.plot(X1_proj[:, 0], X1_proj[:, 1], 'r.', alpha=0.9)
-plt.plot(X2_proj[:, 0], X2_proj[:, 1], 'g.', alpha=0.9)
 
-plt.axhline(0, color='k', linewidth=0.5)  # x 軸線，讓下面那條更明顯
-plt.xlim(-6, 7)
-plt.ylim(-1, 7)
-plt.xlabel('x1')
-plt.ylabel('x2 / projection')
-plt.legend(loc='upper right')
-plt.title('LDA: data and projection onto w')
-plt.tight_layout()
+
+# projection points onto w, then shift to a parallel line (for visualization)
+perp = np.array([-w_unit[1], w_unit[0]])  # unit perpendicular
+shift = -3.0                               # 調這個讓投影線在「下方」更像作業圖
+base = m0 + shift * perp
+
+z1 = (X1 - m0) @ w_unit
+z2 = (X2 - m0) @ w_unit
+
+# ---- draw projection as thick segments (more like the homework figure) ----
+qlo, qhi = 5, 95  # 可改 10, 90 讓線段更短更像範例
+
+z1_lo, z1_hi = np.percentile(z1, [qlo, qhi])
+z2_lo, z2_hi = np.percentile(z2, [qlo, qhi])
+
+seg1_a = base + z1_lo * w_unit
+seg1_b = base + z1_hi * w_unit
+seg2_a = base + z2_lo * w_unit
+seg2_b = base + z2_hi * w_unit
+
+plt.plot([seg1_a[0], seg1_b[0]], [seg1_a[1], seg1_b[1]], 'r-', lw=5)
+plt.plot([seg2_a[0], seg2_b[0]], [seg2_a[1], seg2_b[1]], 'g-', lw=5)
+
+
+plt.axis('equal')
+plt.grid(True)
 plt.show()
